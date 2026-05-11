@@ -1572,7 +1572,7 @@ export default function App() {
   const [error, setError]           = useState(null);
   const [activeChannel, setActiveChannel] = useState(null);
   const [reportVideo, setReportVideo] = useState(null);
-  const [dark, setDark]             = useState(() => localStorage.getItem("yt_dark") === "1");
+  const [dark, setDark]             = useState(() => localStorage.getItem("yt_dark") !== "0");
   const resultsRef = useRef(null);
   const similarRef = useRef(null);
 
