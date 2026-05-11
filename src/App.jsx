@@ -1727,7 +1727,11 @@ export default function App() {
           });
         }
       }
-      allVideos.sort((a, b) => b.viewsRaw - a.viewsRaw);
+      if (myChannelsOrder === "date") {
+        allVideos.sort((a, b) => a.hoursOld - b.hoursOld);
+      } else {
+        allVideos.sort((a, b) => b.viewsRaw - a.viewsRaw);
+      }
       setMyChannelsVideos(allVideos);
     } catch (e) {
       setMyChannelsError(e.message);
