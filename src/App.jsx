@@ -1562,6 +1562,95 @@ function SimilarPanel({ channelName, channelId, apiKey, onClose }) {
   );
 }
 
+const PROFILE_COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16"];
+
+function FollowModal({ channelId, name, thumbnail, subscribers, profiles, followedChannels, onSave, onClose, onCreateProfile }) {
+  const existing = followedChannels.find(c => c.channelId === channelId);
+  const [selectedIds, setSelectedIds] = useState(existing?.profileIds || []);
+  const [newName, setNewName] = useState("");
+  const [showNew, setShowNew] = useState(false);
+
+  const toggle = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
+
+  const handleCreate = () => {
+    if (!newName.trim()) return;
+    const p = onCreateProfile(newName.trim());
+    setSelectedIds(prev => [...prev, p.id]);
+    setNewName(""); setShowNew(false);
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.65)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:"var(--surface)", borderRadius:20, padding:24, maxWidth:360, width:"100%", boxShadow:"0 24px 48px rgba(0,0,0,0.35)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:18 }}>
+          <SafeImg src={thumbnail} alt={name} fallbackName={name} fallbackSize={36} style={{ width:40, height:40, borderRadius:"50%", flexShrink:0 }} />
+          <div style={{ minWidth:0 }}>
+            <p style={{ margin:0, fontSize:13, fontWeight:700, color:"var(--t1)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</p>
+            <p style={{ margin:0, fontSize:11, color:"var(--t3)" }}>{formatViews(subscribers || 0)} inscritos</p>
+          </div>
+          <button onClick={onClose} style={{ marginLeft:"auto", background:"none", border:"none", fontSize:18, color:"var(--t4)", cursor:"pointer", flexShrink:0 }}>×</button>
+        </div>
+
+        <p style={{ margin:"0 0 10px", fontSize:10, fontWeight:700, color:"var(--t4)", textTransform:"uppercase", letterSpacing:"0.08em" }}>Adicionar ao perfil</p>
+
+        {profiles.length === 0 && !showNew && (
+          <p style={{ fontSize:13, color:"var(--t4)", margin:"0 0 12px" }}>Nenhum perfil criado ainda. Crie o primeiro abaixo.</p>
+        )}
+
+        {profiles.length > 0 && (
+          <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:12 }}>
+            {profiles.map(p => {
+              const active = selectedIds.includes(p.id);
+              return (
+                <button key={p.id} onClick={() => toggle(p.id)}
+                  style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 14px", borderRadius:12, border:`1.5px solid ${active ? p.color : "var(--border)"}`, background:active ? `${p.color}22` : "var(--surface2)", cursor:"pointer", textAlign:"left", fontFamily:"inherit", transition:"all 0.15s" }}>
+                  <div style={{ width:10, height:10, borderRadius:"50%", background:p.color, flexShrink:0 }} />
+                  <span style={{ fontSize:13, fontWeight:600, color:"var(--t1)", flex:1 }}>{p.name}</span>
+                  {active && <span style={{ fontSize:14, color:p.color, fontWeight:700 }}>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {showNew ? (
+          <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome do perfil..." autoFocus
+              onKeyDown={e => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setShowNew(false); }} />
+            <button onClick={handleCreate}
+              style={{ padding:"0 16px", borderRadius:10, border:"none", background:"#6366F1", color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", flexShrink:0 }}>
+              Criar
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setShowNew(true)}
+            style={{ width:"100%", padding:"9px", borderRadius:10, border:"1.5px dashed var(--border)", background:"transparent", color:"var(--t3)", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit", marginBottom:14, transition:"border-color 0.15s" }}>
+            + Novo perfil
+          </button>
+        )}
+
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={onClose}
+            style={{ flex:1, padding:"9px", borderRadius:10, border:"1px solid var(--border)", background:"transparent", color:"var(--t2)", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+            Cancelar
+          </button>
+          {existing && (
+            <button onClick={() => onSave(channelId, name, thumbnail, subscribers || 0, [])}
+              style={{ padding:"9px 14px", borderRadius:10, border:"1px solid #FCA5A5", background:"#FEF2F2", color:"#DC2626", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+              Deixar de seguir
+            </button>
+          )}
+          <button onClick={() => onSave(channelId, name, thumbnail, subscribers || 0, selectedIds)}
+            style={{ flex:1, padding:"9px", borderRadius:10, border:"none", background:"#6366F1", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+            {existing ? "Salvar" : "Seguir"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [apiKey, setApiKey]         = useState(() => localStorage.getItem("yt_api_key") || "");
@@ -1578,6 +1667,12 @@ export default function App() {
   const [followedChannels, setFollowedChannels] = useState(() => {
     try { return JSON.parse(localStorage.getItem("yt_followed") || "[]"); } catch { return []; }
   });
+  const [profiles, setProfiles] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("yt_profiles") || "[]"); } catch { return []; }
+  });
+  const [activeProfile, setActiveProfile] = useState("all");
+  const [followModal, setFollowModal] = useState(null);
+  const [editingProfileId, setEditingProfileId] = useState(null);
   const [myChannelsView, setMyChannelsView] = useState(false);
   const [myChannelsVideos, setMyChannelsVideos] = useState(null);
   const [myChannelsLoading, setMyChannelsLoading] = useState(false);
@@ -1654,15 +1749,61 @@ export default function App() {
     }
   };
 
-  const toggleFollow = (channelId, name, thumbnail, subscribers) => {
+  const createProfile = (name) => {
+    const color = PROFILE_COLORS[profiles.length % PROFILE_COLORS.length];
+    const p = { id: Date.now().toString(), name, color };
+    setProfiles(prev => {
+      const next = [...prev, p];
+      localStorage.setItem("yt_profiles", JSON.stringify(next));
+      return next;
+    });
+    return p;
+  };
+
+  const renameProfile = (id, newName) => {
+    setProfiles(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, name: newName } : p);
+      localStorage.setItem("yt_profiles", JSON.stringify(next));
+      return next;
+    });
+    setEditingProfileId(null);
+  };
+
+  const deleteProfile = (id) => {
+    setProfiles(prev => {
+      const next = prev.filter(p => p.id !== id);
+      localStorage.setItem("yt_profiles", JSON.stringify(next));
+      return next;
+    });
     setFollowedChannels(prev => {
-      const exists = prev.find(c => c.channelId === channelId);
-      const next = exists
-        ? prev.filter(c => c.channelId !== channelId)
-        : [...prev, { channelId, name, thumbnail, subscribers }];
+      const next = prev.map(c => ({ ...c, profileIds: (c.profileIds || []).filter(pid => pid !== id) }));
       localStorage.setItem("yt_followed", JSON.stringify(next));
       return next;
     });
+    if (activeProfile === id) setActiveProfile("all");
+  };
+
+  const saveFollow = (channelId, name, thumbnail, subscribers, profileIds) => {
+    setFollowedChannels(prev => {
+      let next;
+      if (profileIds.length === 0) {
+        next = prev.filter(c => c.channelId !== channelId);
+      } else {
+        const exists = prev.find(c => c.channelId === channelId);
+        if (exists) {
+          next = prev.map(c => c.channelId === channelId ? { ...c, profileIds } : c);
+        } else {
+          next = [...prev, { channelId, name, thumbnail, subscribers, profileIds }];
+        }
+      }
+      localStorage.setItem("yt_followed", JSON.stringify(next));
+      return next;
+    });
+    setFollowModal(null);
+  };
+
+  const openFollowModal = (channelId, name, thumbnail, subscribers) => {
+    setFollowModal({ channelId, name, thumbnail, subscribers });
   };
 
   const fetchMyChannelsVideos = async () => {
@@ -1672,7 +1813,11 @@ export default function App() {
     setMyChannelsVideos(null);
     setMyChannelsSortMetrics([]);
     try {
-      const chIds = followedChannels.map(c => c.channelId).join(",");
+      const channelsToFetch = activeProfile === "all"
+        ? followedChannels
+        : followedChannels.filter(c => (c.profileIds || []).includes(activeProfile));
+      if (!channelsToFetch.length) { setMyChannelsVideos([]); setMyChannelsLoading(false); return; }
+      const chIds = channelsToFetch.map(c => c.channelId).join(",");
       const chBatch = await ytFetch(apiKey, `/channels?part=statistics,snippet&id=${chIds}`);
       const chMap = {};
       for (const c of chBatch.items || []) {
@@ -1685,7 +1830,7 @@ export default function App() {
         };
       }
       const allVideos = [];
-      for (const ch of followedChannels) {
+      for (const ch of channelsToFetch) {
         const searchData = await ytFetch(apiKey,
           `/search?part=snippet&channelId=${ch.channelId}&type=video&maxResults=20&order=${myChannelsOrder}`
         );
@@ -1892,6 +2037,20 @@ export default function App() {
       `}</style>
 
       {reportVideo && <ReportModal video={reportVideo} onClose={() => setReportVideo(null)} apiKey={apiKey} />}
+
+      {followModal && (
+        <FollowModal
+          channelId={followModal.channelId}
+          name={followModal.name}
+          thumbnail={followModal.thumbnail}
+          subscribers={followModal.subscribers}
+          profiles={profiles}
+          followedChannels={followedChannels}
+          onSave={saveFollow}
+          onClose={() => setFollowModal(null)}
+          onCreateProfile={createProfile}
+        />
+      )}
 
       <header style={{ background:"#0F172A", position:"sticky", top:0, zIndex:100, borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
         <div style={{ maxWidth:1280, margin:"0 auto", padding:"12px 16px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
@@ -2116,7 +2275,7 @@ export default function App() {
                   video={video} index={i} rank={i+1}
                   onChannelClick={video.type==="video" ? handleChannelClick : null}
                   onReportClick={video.type==="video" ? setReportVideo : null}
-                  onFollowToggle={video.type==="video" ? toggleFollow : null}
+                  onFollowToggle={video.type==="video" ? openFollowModal : null}
                   isFollowed={followedChannels.some(c => c.channelId === video.channelId)}
                 />
               ))}
@@ -2158,17 +2317,59 @@ export default function App() {
         <div style={{ position:"fixed", inset:0, zIndex:200, background:"var(--bg)", overflowY:"auto" }}>
           <div style={{ maxWidth:1280, margin:"0 auto", padding:"24px 16px 60px" }}>
 
-            {/* Header da view */}
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <button onClick={() => setMyChannelsView(false)}
-                  style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:"7px 14px", cursor:"pointer", fontSize:13, color:"var(--t2)", fontFamily:"inherit", fontWeight:600 }}>
-                  ← Voltar
-                </button>
-                <div style={{ width:4, height:22, background:"linear-gradient(180deg,#6366F1,#4F46E5)", borderRadius:2 }} />
-                <p style={{ margin:0, fontSize:16, fontWeight:800, color:"var(--t1)", letterSpacing:"-0.02em" }}>Meus Canais</p>
-                <span style={{ fontSize:12, background:"#EEF2FF", color:"#4F46E5", padding:"4px 12px", borderRadius:20, fontWeight:700, border:"1px solid #C7D2FE" }}>{followedChannels.length} seguidos</span>
-              </div>
+            {/* Header */}
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+              <button onClick={() => setMyChannelsView(false)}
+                style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:"7px 14px", cursor:"pointer", fontSize:13, color:"var(--t2)", fontFamily:"inherit", fontWeight:600 }}>
+                ← Voltar
+              </button>
+              <div style={{ width:4, height:22, background:"linear-gradient(180deg,#6366F1,#4F46E5)", borderRadius:2 }} />
+              <p style={{ margin:0, fontSize:16, fontWeight:800, color:"var(--t1)", letterSpacing:"-0.02em" }}>Meus Canais</p>
+              <span style={{ fontSize:12, background:"#EEF2FF", color:"#4F46E5", padding:"4px 12px", borderRadius:20, fontWeight:700, border:"1px solid #C7D2FE" }}>{followedChannels.length} seguidos</span>
+            </div>
+
+            {/* Profile tabs */}
+            <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:20, flexWrap:"wrap" }}>
+              {/* Todos */}
+              <button onClick={() => setActiveProfile("all")}
+                style={{ padding:"6px 16px", borderRadius:20, fontSize:13, fontWeight:700, cursor:"pointer", border:`1.5px solid ${activeProfile==="all"?"#6366F1":"var(--border)"}`, background:activeProfile==="all"?"#6366F1":"var(--surface)", color:activeProfile==="all"?"#fff":"var(--t2)", transition:"all 0.15s" }}>
+                Todos
+              </button>
+
+              {profiles.map(p => (
+                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:0, borderRadius:20, overflow:"hidden", border:`1.5px solid ${activeProfile===p.id?p.color:"var(--border)"}`, background:activeProfile===p.id?`${p.color}22`:"var(--surface)", transition:"all 0.15s" }}>
+                  {editingProfileId === p.id ? (
+                    <input
+                      autoFocus
+                      defaultValue={p.name}
+                      onBlur={e => { if (e.target.value.trim()) renameProfile(p.id, e.target.value.trim()); else setEditingProfileId(null); }}
+                      onKeyDown={e => { if (e.key==="Enter" && e.target.value.trim()) renameProfile(p.id, e.target.value.trim()); if (e.key==="Escape") setEditingProfileId(null); }}
+                      style={{ width:100, padding:"4px 10px", border:"none", background:"transparent", fontSize:13, fontWeight:700, color:"var(--t1)", outline:"none" }}
+                    />
+                  ) : (
+                    <button onClick={() => setActiveProfile(p.id)}
+                      style={{ display:"flex", alignItems:"center", gap:7, padding:"6px 12px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit" }}>
+                      <div style={{ width:8, height:8, borderRadius:"50%", background:p.color, flexShrink:0 }} />
+                      <span style={{ fontSize:13, fontWeight:700, color:activeProfile===p.id?p.color:"var(--t2)", whiteSpace:"nowrap" }}>{p.name}</span>
+                      <span style={{ fontSize:11, color:"var(--t4)", marginLeft:2 }}>
+                        {followedChannels.filter(c=>(c.profileIds||[]).includes(p.id)).length}
+                      </span>
+                    </button>
+                  )}
+                  <div style={{ display:"flex", alignItems:"center", borderLeft:"1px solid var(--border)" }}>
+                    <button onClick={() => setEditingProfileId(editingProfileId===p.id?null:p.id)} title="Renomear"
+                      style={{ padding:"6px 7px", border:"none", background:"transparent", cursor:"pointer", fontSize:11, color:"var(--t4)", lineHeight:1 }}>✏</button>
+                    <button onClick={() => { if (window.confirm(`Excluir perfil "${p.name}"?`)) deleteProfile(p.id); }} title="Excluir"
+                      style={{ padding:"6px 7px", border:"none", background:"transparent", cursor:"pointer", fontSize:11, color:"#EF4444", lineHeight:1 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+
+              {/* Novo perfil inline */}
+              <button onClick={() => { const name = window.prompt("Nome do novo perfil:"); if (name?.trim()) createProfile(name.trim()); }}
+                style={{ padding:"6px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:"1.5px dashed var(--border)", background:"transparent", color:"var(--t3)", transition:"all 0.15s" }}>
+                + Novo Perfil
+              </button>
             </div>
 
             {followedChannels.length === 0 ? (
@@ -2179,39 +2380,56 @@ export default function App() {
               </div>
             ) : (
               <>
-                {/* Lista de canais seguidos */}
-                <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:16, padding:"18px 20px", marginBottom:22 }}>
-                  <div style={{ display:"flex", gap:14, overflowX:"auto", paddingBottom:6 }}>
-                    {followedChannels.map(ch => (
-                      <div key={ch.channelId} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, minWidth:72 }}>
-                        <div style={{ position:"relative" }}>
-                          <SafeImg src={ch.thumbnail} alt={ch.name} fallbackName={ch.name} fallbackSize={44} style={{ width:48, height:48, borderRadius:"50%", border:"2px solid #6366F1" }} />
-                          <button onClick={() => toggleFollow(ch.channelId, ch.name, ch.thumbnail, ch.subscribers)}
-                            style={{ position:"absolute", top:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#EF4444", border:"none", color:"#fff", fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 }}>
-                            ×
-                          </button>
+                {/* Canal list filtered by active profile */}
+                {(() => {
+                  const visibleChannels = activeProfile === "all"
+                    ? followedChannels
+                    : followedChannels.filter(c => (c.profileIds || []).includes(activeProfile));
+                  return (
+                    <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:16, padding:"18px 20px", marginBottom:22 }}>
+                      {visibleChannels.length === 0 ? (
+                        <p style={{ margin:0, fontSize:13, color:"var(--t4)", textAlign:"center", padding:"1rem 0" }}>Nenhum canal neste perfil ainda.</p>
+                      ) : (
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+                          {visibleChannels.map(ch => (
+                            <div key={ch.channelId} style={{ display:"flex", alignItems:"center", gap:8, background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:12, padding:"8px 12px" }}>
+                              <SafeImg src={ch.thumbnail} alt={ch.name} fallbackName={ch.name} fallbackSize={32} style={{ width:34, height:34, borderRadius:"50%", border:`2px solid ${profiles.find(p=>(ch.profileIds||[]).includes(p.id))?.color||"#6366F1"}` }} />
+                              <div style={{ minWidth:0 }}>
+                                <p style={{ margin:0, fontSize:12, fontWeight:700, color:"var(--t1)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:120 }}>{ch.name}</p>
+                                <div style={{ display:"flex", gap:3, marginTop:3, flexWrap:"wrap" }}>
+                                  {(ch.profileIds||[]).map(pid => {
+                                    const prof = profiles.find(p => p.id === pid);
+                                    return prof ? <span key={pid} style={{ fontSize:9, fontWeight:700, background:`${prof.color}22`, color:prof.color, borderRadius:20, padding:"1px 6px" }}>{prof.name}</span> : null;
+                                  })}
+                                </div>
+                              </div>
+                              <button onClick={() => openFollowModal(ch.channelId, ch.name, ch.thumbnail, ch.subscribers)}
+                                style={{ marginLeft:4, padding:"4px 10px", borderRadius:8, border:"1px solid var(--border)", background:"transparent", color:"var(--t3)", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+                                Gerenciar
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                        <span style={{ fontSize:10, color:"var(--t2)", fontWeight:600, textAlign:"center", maxWidth:68, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ch.name}</span>
-                      </div>
-                    ))}
-                  </div>
+                      )}
 
-                  {/* Controles de busca */}
-                  <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:16, flexWrap:"wrap" }}>
-                    <span style={{ fontSize:12, fontWeight:700, color:"var(--t3)" }}>Ordenar por:</span>
-                    {[{v:"viewCount",l:"Popularidade"},{v:"date",l:"Mais recentes"}].map(o => (
-                      <button key={o.v} onClick={() => setMyChannelsOrder(o.v)}
-                        style={{ padding:"5px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${myChannelsOrder===o.v?"#6366F1":"var(--border)"}`, background:myChannelsOrder===o.v?"#6366F1":"var(--surface)", color:myChannelsOrder===o.v?"#fff":"var(--t2)", transition:"all 0.15s" }}>
-                        {o.l}
-                      </button>
-                    ))}
-                    <button onClick={fetchMyChannelsVideos} disabled={myChannelsLoading}
-                      style={{ marginLeft:"auto", padding:"8px 22px", borderRadius:20, border:"none", background:"linear-gradient(135deg,#6366F1,#4F46E5)", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", opacity:myChannelsLoading?0.7:1, boxShadow:"0 4px 12px rgba(99,102,241,0.35)" }}>
-                      {myChannelsLoading ? "Buscando…" : "🔍 Buscar Vídeos"}
-                    </button>
-                  </div>
-                  {myChannelsError && <p style={{ margin:"10px 0 0", fontSize:12, color:"#EF4444" }}>Erro: {myChannelsError}</p>}
-                </div>
+                      {/* Controles de busca */}
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                        <span style={{ fontSize:12, fontWeight:700, color:"var(--t3)" }}>Ordenar por:</span>
+                        {[{v:"viewCount",l:"Popularidade"},{v:"date",l:"Mais recentes"}].map(o => (
+                          <button key={o.v} onClick={() => setMyChannelsOrder(o.v)}
+                            style={{ padding:"5px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${myChannelsOrder===o.v?"#6366F1":"var(--border)"}`, background:myChannelsOrder===o.v?"#6366F1":"var(--surface)", color:myChannelsOrder===o.v?"#fff":"var(--t2)", transition:"all 0.15s" }}>
+                            {o.l}
+                          </button>
+                        ))}
+                        <button onClick={fetchMyChannelsVideos} disabled={myChannelsLoading}
+                          style={{ marginLeft:"auto", padding:"8px 22px", borderRadius:20, border:"none", background:"linear-gradient(135deg,#6366F1,#4F46E5)", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", opacity:myChannelsLoading?0.7:1, boxShadow:"0 4px 12px rgba(99,102,241,0.35)" }}>
+                          {myChannelsLoading ? "Buscando…" : "🔍 Buscar Vídeos"}
+                        </button>
+                      </div>
+                      {myChannelsError && <p style={{ margin:"10px 0 0", fontSize:12, color:"#EF4444" }}>Erro: {myChannelsError}</p>}
+                    </div>
+                  );
+                })()}
 
                 {/* Resultados */}
                 {myChannelsVideos && (
@@ -2248,7 +2466,7 @@ export default function App() {
                           key={video.videoId + i}
                           video={video} index={i} rank={i+1}
                           onReportClick={setReportVideo}
-                          onFollowToggle={toggleFollow}
+                          onFollowToggle={openFollowModal}
                           isFollowed={followedChannels.some(c => c.channelId === video.channelId)}
                         />
                       ))}
