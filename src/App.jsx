@@ -484,28 +484,50 @@ function trendSignal(video) {
 function calcOpportunityScore(video) {
   const subs    = video.channelSubscribers || 0;
   const outlier = video.outlier  || 0;
-  const vph     = video.vph      || 0;
   const views   = video.viewsRaw || 0;
   const h       = video.hoursOld || 0;
 
-  // Outlier score: threshold scales with channel size
-  // Mega channels (>2M) are unreliable — absolute velocity takes over
-  let oScore = 0;
-  if      (subs <   50000) oScore = Math.min(100, (outlier / 6) * 50);
-  else if (subs <  500000) oScore = Math.min(100, (outlier / 4) * 50);
-  else if (subs < 2000000) oScore = Math.min(100, (outlier / 3) * 50);
+  // === SIGNAL 1: Absolute velocity — proves topic demand (primary, channel-size-agnostic) ===
+  let velocityScore = 0;
+  if (h <= 24) {
+    if      (views >= 100000) velocityScore = 80;
+    else if (views >=  50000) velocityScore = 70;
+    else if (views >=  20000) velocityScore = 60;
+    else if (views >=  10000) velocityScore = 50;
+    else if (views >=   6000) velocityScore = 40;
+    else if (views >=   2000) velocityScore = 25;
+    else                      velocityScore = (views / 2000) * 25;
+  } else if (h <= 72) {
+    // still fresh — apply 0.85 decay
+    if      (views >= 500000) velocityScore = 68;
+    else if (views >= 200000) velocityScore = 60;
+    else if (views >=  50000) velocityScore = 51;
+    else if (views >=  20000) velocityScore = 43;
+    else if (views >=  10000) velocityScore = 32;
+    else                      velocityScore = (views / 10000) * 32;
+  } else if (h <= 168) {
+    // 3–7 days — 0.70 decay
+    if      (views >= 1000000) velocityScore = 56;
+    else if (views >=  500000) velocityScore = 49;
+    else if (views >=  100000) velocityScore = 42;
+    else if (views >=   20000) velocityScore = 31;
+    else                       velocityScore = (views / 20000) * 31;
+  } else {
+    // >7 days — 0.40 decay, trend fading
+    if      (views >= 1000000) velocityScore = 32;
+    else if (views >=  500000) velocityScore = 26;
+    else if (views >=  100000) velocityScore = 18;
+    else                       velocityScore = (views / 100000) * 18;
+  }
 
-  // Velocity score: thresholds anchored to user-defined windows
-  // ≤24h: 6k views/day (250 VPH) = 60pts | 10k/day (417 VPH) = 100pts
-  // 24-72h: accumulation matters, 10k = strong
-  // 3-7d: 20k+ = strong signal for replication
-  let vScore = 0;
-  if      (h <= 24)  vScore = Math.min(100, (vph   /  417) * 100);
-  else if (h <= 72)  vScore = Math.min(100, (views / 6000) *  50);
-  else if (h <= 168) vScore = Math.min(100, (views / 20000) * 80);
-  else               vScore = Math.min(60,  (views / 50000) * 60);
+  // === SIGNAL 2: Outlier bonus — confirms above-average performance for channel size (secondary) ===
+  let outlierBonus = 0;
+  if      (subs <   50000) outlierBonus = Math.min(20, (outlier / 6) * 20);
+  else if (subs <  500000) outlierBonus = Math.min(20, (outlier / 4) * 15);
+  else if (subs < 2000000) outlierBonus = Math.min(15, (outlier / 3) * 10);
+  else                     outlierBonus = Math.min(10, (outlier / 2) *  5);
 
-  const score = Math.round(Math.max(oScore, vScore));
+  const score = Math.min(100, Math.round(velocityScore + outlierBonus));
 
   if (score >= 75) return { score, label:"Explosivo", emoji:"🔥", color:"#DC2626", bg:"#FEF2F2", border:"#FECACA" };
   if (score >= 50) return { score, label:"Promissor",  emoji:"⚡", color:"#D97706", bg:"#FFFBEB", border:"#FCD34D" };
