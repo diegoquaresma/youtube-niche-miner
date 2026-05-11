@@ -373,13 +373,8 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
         const vph      = views / Math.max(1, rawHours);
         // Use peer average from results when ≥3 videos from same channel, else channel total
         const peers = peerViewsMap[item.snippet.channelId] || [];
-        const peersOtherTotal = peers.reduce((s, v) => s + v, 0) - views;
-        const peersOtherCount = peers.length - 1;
-        const peerAvg = peersOtherCount >= 2 && peersOtherTotal > 0
-          ? peersOtherTotal / peersOtherCount
-          : null;
-        const outlier = peerAvg
-          ? views / peerAvg
+        const outlier = peers.length >= 3
+          ? calcOutlierFromPeers(views, peers)
           : calcOutlier(views, ch.totalViews, ch.videoCount);
         return {
           type: "video", videoId: id,
@@ -497,16 +492,30 @@ function trendSignal(video) {
   return   { dot:"🔴", label:"TENDÊNCIA ENCERRADA",       color:"#991B1B", textColor:"#450A0A", bg:"#FEE2E2",             border:"#FCA5A5" };
 }
 
+function medianOf(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[m - 1] + s[m]) / 2 : s[m];
+}
+
 function calcOutlier(views, chTotalViews, chVideoCount) {
+  // Fallback when we only have channel totals (search path, single video)
   const total = chTotalViews || 0;
   const count = chVideoCount || 1;
   const rawAvg = total > 0 ? total / count : 0;
-  // Subtract this video's contribution to get the true baseline average.
-  // Falls back to rawAvg when stats are stale/hidden (total <= views).
   const baseV = total - views;
   const baseN = count - 1;
-  const trueAvg = baseN >= 1 && baseV > 0 ? baseV / baseN : rawAvg;
-  return trueAvg > 0 ? views / trueAvg : 0;
+  const baseline = baseN >= 1 && baseV > 0 ? baseV / baseN : rawAvg;
+  return baseline > 0 ? views / baseline : 0;
+}
+
+function calcOutlierFromPeers(views, allChannelViews) {
+  // Use median of other videos as baseline — resistant to a single viral outlier skewing the avg
+  const others = allChannelViews.filter(v => v !== views);
+  if (!others.length) return 0;
+  const baseline = medianOf(others);
+  return baseline > 0 ? views / baseline : 0;
 }
 
 function calcOpportunityScore(video) {
@@ -1941,12 +1950,10 @@ export default function App() {
         }
         const chInfo = chMap[ch.channelId] || {};
 
-        // Compute average from the actual fetched videos (recent performance baseline)
+        // Collect all fetched view counts for this channel to use as peer baseline
         const fetchedViews = items
           .filter(i => i.id?.videoId)
           .map(i => Number(statsMap[i.id.videoId]?.stats?.viewCount) || 0);
-        const fetchedTotal = fetchedViews.reduce((a, b) => a + b, 0);
-        const fetchedCount = fetchedViews.length;
 
         for (const item of items.filter(i => i.id?.videoId)) {
           const id = item.id.videoId;
@@ -1955,12 +1962,6 @@ export default function App() {
           const dur = si.dur || { sec: 0, str: "—" };
           const views = Number(stats.viewCount) || 0;
           const rawH = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
-          // Average of the OTHER fetched videos (exclude self) — true recent baseline
-          const othersTotal = fetchedTotal - views;
-          const othersCount = fetchedCount - 1;
-          const recentAvg = othersCount > 0 && othersTotal > 0
-            ? othersTotal / othersCount
-            : (chInfo.totalViews || 0) / Math.max(1, chInfo.videoCount || 1);
           allVideos.push({
             type: "video", videoId: id,
             url: `https://www.youtube.com/watch?v=${id}`,
@@ -1973,7 +1974,9 @@ export default function App() {
             thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
             views: formatViews(views), viewsRaw: views,
             vph: views / Math.max(1, rawH),
-            outlier: recentAvg > 0 ? views / recentAvg : 0,
+            outlier: fetchedViews.length >= 2
+              ? calcOutlierFromPeers(views, fetchedViews)
+              : calcOutlier(views, chInfo.totalViews, chInfo.videoCount),
             hoursOld: rawH,
             likesRaw: Number(stats.likeCount) || 0,
             commentsRaw: Number(stats.commentCount) || 0,
