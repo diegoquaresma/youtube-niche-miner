@@ -210,9 +210,6 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
       const views  = Number(stats.viewCount) || 0;
       const ch     = chMap2[item.snippet.channelId] || {};
       const rawH   = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
-      const baseV  = Math.max(0, (ch.totalViews || 0) - views);
-      const baseN  = Math.max(1, (ch.videoCount  || 1) - 1);
-      const trueAvg = baseV / baseN;
       return {
         type: "video", videoId: id,
         url:  `https://www.youtube.com/watch?v=${id}`,
@@ -225,7 +222,7 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
         thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
         views: formatViews(views), viewsRaw: views,
         vph: views / Math.max(1, rawH),
-        outlier: trueAvg > 0 ? views / trueAvg : 0,
+        outlier: calcOutlier(views, ch.totalViews, ch.videoCount),
         hoursOld: rawH,
         likesRaw: Number(stats.likeCount) || 0,
         commentsRaw: Number(stats.commentCount) || 0,
@@ -365,9 +362,7 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
         const ch       = chMap[item.snippet.channelId] || {};
         const rawHours = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
         const vph      = views / Math.max(1, rawHours);
-        const baseV    = Math.max(0, (ch.totalViews || 0) - views);
-        const baseN    = Math.max(1, (ch.videoCount  || 1) - 1);
-        const outlier  = baseN > 0 && baseV > 0 ? views / (baseV / baseN) : 0;
+        const outlier  = calcOutlier(views, ch.totalViews, ch.videoCount);
         return {
           type: "video", videoId: id,
           url: `https://www.youtube.com/watch?v=${id}`,
@@ -482,6 +477,18 @@ function trendSignal(video) {
   if (days <= 10)
     return { dot:"🔴", label:"OPORTUNIDADE ENFRAQUECENDO",color:"#EF4444", textColor:"#7F1D1D", bg:"#FEF2F2",             border:"#FECACA" };
   return   { dot:"🔴", label:"TENDÊNCIA ENCERRADA",       color:"#991B1B", textColor:"#450A0A", bg:"#FEE2E2",             border:"#FCA5A5" };
+}
+
+function calcOutlier(views, chTotalViews, chVideoCount) {
+  const total = chTotalViews || 0;
+  const count = chVideoCount || 1;
+  const rawAvg = total > 0 ? total / count : 0;
+  // Subtract this video's contribution to get the true baseline average.
+  // Falls back to rawAvg when stats are stale/hidden (total <= views).
+  const baseV = total - views;
+  const baseN = count - 1;
+  const trueAvg = baseN >= 1 && baseV > 0 ? baseV / baseN : rawAvg;
+  return trueAvg > 0 ? views / trueAvg : 0;
 }
 
 function calcOpportunityScore(video) {
@@ -1922,9 +1929,6 @@ export default function App() {
           const dur = si.dur || { sec: 0, str: "—" };
           const views = Number(stats.viewCount) || 0;
           const rawH = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
-          const baseV = Math.max(0, (chInfo.totalViews || 0) - views);
-          const baseN = Math.max(1, (chInfo.videoCount  || 1) - 1);
-          const trueAvg = baseV / baseN;
           allVideos.push({
             type: "video", videoId: id,
             url: `https://www.youtube.com/watch?v=${id}`,
@@ -1937,7 +1941,7 @@ export default function App() {
             thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
             views: formatViews(views), viewsRaw: views,
             vph: views / Math.max(1, rawH),
-            outlier: trueAvg > 0 ? views / trueAvg : 0,
+            outlier: calcOutlier(views, chInfo.totalViews, chInfo.videoCount),
             hoursOld: rawH,
             likesRaw: Number(stats.likeCount) || 0,
             commentsRaw: Number(stats.commentCount) || 0,
