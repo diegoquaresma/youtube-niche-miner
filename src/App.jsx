@@ -195,12 +195,11 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
     const chData   = await ytFetch(apiKey, `/channels?part=snippet,statistics&id=${uniqueCh}`);
     const chMap2 = {};
     for (const c of chData.items || []) {
-      const tv = Number(c.statistics?.viewCount) || 0;
-      const tn = Number(c.statistics?.videoCount) || 1;
       chMap2[c.id] = {
         thumbnail:   c.snippet?.thumbnails?.medium?.url || c.snippet?.thumbnails?.default?.url || "",
         subscribers: Number(c.statistics?.subscriberCount) || 0,
-        avgViews:    tn > 0 ? tv / tn : 0,
+        totalViews:  Number(c.statistics?.viewCount)       || 0,
+        videoCount:  Number(c.statistics?.videoCount)      || 1,
       };
     }
 
@@ -211,6 +210,9 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
       const views  = Number(stats.viewCount) || 0;
       const ch     = chMap2[item.snippet.channelId] || {};
       const rawH   = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
+      const baseV  = Math.max(0, (ch.totalViews || 0) - views);
+      const baseN  = Math.max(1, (ch.videoCount  || 1) - 1);
+      const trueAvg = baseV / baseN;
       return {
         type: "video", videoId: id,
         url:  `https://www.youtube.com/watch?v=${id}`,
@@ -223,7 +225,7 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
         thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
         views: formatViews(views), viewsRaw: views,
         vph: views / Math.max(1, rawH),
-        outlier: ch.avgViews > 0 ? views / ch.avgViews : 0,
+        outlier: trueAvg > 0 ? views / trueAvg : 0,
         hoursOld: rawH,
         likesRaw: Number(stats.likeCount) || 0,
         commentsRaw: Number(stats.commentCount) || 0,
@@ -344,12 +346,11 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
 
   const chMap = {};
   for (const c of chData.items || []) {
-    const totalViews = Number(c.statistics?.viewCount) || 0;
-    const totalVids  = Number(c.statistics?.videoCount) || 1;
     chMap[c.id] = {
-      thumbnail: c.snippet?.thumbnails?.medium?.url || c.snippet?.thumbnails?.default?.url || "",
+      thumbnail:   c.snippet?.thumbnails?.medium?.url || c.snippet?.thumbnails?.default?.url || "",
       subscribers: Number(c.statistics?.subscriberCount) || 0,
-      avgViews: totalVids > 0 ? totalViews / totalVids : 0,
+      totalViews:  Number(c.statistics?.viewCount)       || 0,
+      videoCount:  Number(c.statistics?.videoCount)      || 1,
     };
   }
 
@@ -364,7 +365,9 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
         const ch       = chMap[item.snippet.channelId] || {};
         const rawHours = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
         const vph      = views / Math.max(1, rawHours);
-        const outlier  = ch.avgViews > 0 ? views / ch.avgViews : 0;
+        const baseV    = Math.max(0, (ch.totalViews || 0) - views);
+        const baseN    = Math.max(1, (ch.videoCount  || 1) - 1);
+        const outlier  = baseN > 0 && baseV > 0 ? views / (baseV / baseN) : 0;
         return {
           type: "video", videoId: id,
           url: `https://www.youtube.com/watch?v=${id}`,
@@ -1891,12 +1894,11 @@ export default function App() {
       const chBatch = await ytFetch(apiKey, `/channels?part=statistics,snippet&id=${chIds}`);
       const chMap = {};
       for (const c of chBatch.items || []) {
-        const tv = Number(c.statistics?.viewCount) || 0;
-        const tn = Number(c.statistics?.videoCount) || 1;
         chMap[c.id] = {
-          thumbnail: c.snippet?.thumbnails?.medium?.url || c.snippet?.thumbnails?.default?.url || "",
+          thumbnail:   c.snippet?.thumbnails?.medium?.url || c.snippet?.thumbnails?.default?.url || "",
           subscribers: Number(c.statistics?.subscriberCount) || 0,
-          avgViews: tn > 0 ? tv / tn : 0,
+          totalViews:  Number(c.statistics?.viewCount)       || 0,
+          videoCount:  Number(c.statistics?.videoCount)      || 1,
         };
       }
       const allVideos = [];
@@ -1920,6 +1922,9 @@ export default function App() {
           const dur = si.dur || { sec: 0, str: "—" };
           const views = Number(stats.viewCount) || 0;
           const rawH = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
+          const baseV = Math.max(0, (chInfo.totalViews || 0) - views);
+          const baseN = Math.max(1, (chInfo.videoCount  || 1) - 1);
+          const trueAvg = baseV / baseN;
           allVideos.push({
             type: "video", videoId: id,
             url: `https://www.youtube.com/watch?v=${id}`,
@@ -1932,7 +1937,7 @@ export default function App() {
             thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
             views: formatViews(views), viewsRaw: views,
             vph: views / Math.max(1, rawH),
-            outlier: chInfo.avgViews > 0 ? views / chInfo.avgViews : 0,
+            outlier: trueAvg > 0 ? views / trueAvg : 0,
             hoursOld: rawH,
             likesRaw: Number(stats.likeCount) || 0,
             commentsRaw: Number(stats.commentCount) || 0,
