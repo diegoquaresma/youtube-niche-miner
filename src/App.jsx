@@ -481,6 +481,38 @@ function trendSignal(video) {
   return   { dot:"🔴", label:"TENDÊNCIA ENCERRADA",       color:"#991B1B", textColor:"#450A0A", bg:"#FEE2E2",             border:"#FCA5A5" };
 }
 
+function calcOpportunityScore(video) {
+  const subs    = video.channelSubscribers || 0;
+  const outlier = video.outlier  || 0;
+  const vph     = video.vph      || 0;
+  const views   = video.viewsRaw || 0;
+  const h       = video.hoursOld || 0;
+
+  // Outlier score: threshold scales with channel size
+  // Mega channels (>2M) are unreliable — absolute velocity takes over
+  let oScore = 0;
+  if      (subs <   50000) oScore = Math.min(100, (outlier / 6) * 50);
+  else if (subs <  500000) oScore = Math.min(100, (outlier / 4) * 50);
+  else if (subs < 2000000) oScore = Math.min(100, (outlier / 3) * 50);
+
+  // Velocity score: thresholds anchored to user-defined windows
+  // ≤24h: 6k views/day (250 VPH) = 60pts | 10k/day (417 VPH) = 100pts
+  // 24-72h: accumulation matters, 10k = strong
+  // 3-7d: 20k+ = strong signal for replication
+  let vScore = 0;
+  if      (h <= 24)  vScore = Math.min(100, (vph   /  417) * 100);
+  else if (h <= 72)  vScore = Math.min(100, (views / 6000) *  50);
+  else if (h <= 168) vScore = Math.min(100, (views / 20000) * 80);
+  else               vScore = Math.min(60,  (views / 50000) * 60);
+
+  const score = Math.round(Math.max(oScore, vScore));
+
+  if (score >= 75) return { score, label:"Explosivo", emoji:"🔥", color:"#DC2626", bg:"#FEF2F2", border:"#FECACA" };
+  if (score >= 50) return { score, label:"Promissor",  emoji:"⚡", color:"#D97706", bg:"#FFFBEB", border:"#FCD34D" };
+  if (score >= 25) return { score, label:"Relevante",  emoji:"✅", color:"#059669", bg:"#F0FDF4", border:"#86EFAC" };
+  return              { score, label:"Normal",     emoji:"—",  color:"var(--t4)", bg:"var(--surface2)", border:"var(--border)" };
+}
+
 function classifyVideo(video) {
   const days    = (video.hoursOld || 0) / 24;
   const outlier = video.outlier || 0;
@@ -1351,6 +1383,7 @@ function VideoCard({ video, rank, index, onChannelClick, onReportClick, onFollow
   const chUrl = video.channelUrl || `https://www.youtube.com/channel/${video.channelId}`;
   const ob     = video.outlier > 0 ? outlierBadge(video.outlier) : null;
   const signal = trendSignal(video);
+  const opp    = video.type === "video" ? calcOpportunityScore(video) : null;
   const isTop3 = rank <= 3;
 
   return (
@@ -1369,6 +1402,13 @@ function VideoCard({ video, rank, index, onChannelClick, onReportClick, onFollow
           )}
           {ob && video.outlier >= 2 && (
             <div style={{ position:"absolute", top:8, right:8, background:ob.bg, color:ob.text, fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20 }}>{ob.label}</div>
+          )}
+          {opp && opp.score >= 50 && (
+            <div style={{ position:"absolute", bottom:8, left:8, background:"rgba(0,0,0,0.72)", color:"#fff", fontSize:10, fontWeight:800, padding:"3px 9px", borderRadius:20, backdropFilter:"blur(4px)", display:"flex", alignItems:"center", gap:4 }}>
+              <span>{opp.emoji}</span>
+              <span style={{ color:opp.color }}>{opp.label.toUpperCase()}</span>
+              <span style={{ color:"#94A3B8", fontSize:9 }}>{opp.score}</span>
+            </div>
           )}
         </div>
       </a>
@@ -1392,6 +1432,14 @@ function VideoCard({ video, rank, index, onChannelClick, onReportClick, onFollow
 
         {video.type === "video" && (
           <div style={{ display:"flex", flexWrap:"wrap", gap:5, alignItems:"center" }}>
+            {opp && (
+              <div style={{ display:"flex", alignItems:"center", gap:4, background:opp.bg, border:`1px solid ${opp.border}`, padding:"3px 9px", borderRadius:20 }}
+                title={`Índice de Oportunidade: ${opp.score}/100`}>
+                <span style={{ fontSize:11 }}>{opp.emoji}</span>
+                <span style={{ fontSize:11, color:opp.color, fontWeight:800 }}>{opp.label}</span>
+                <span style={{ fontSize:10, color:opp.color, opacity:0.7 }}>{opp.score}</span>
+              </div>
+            )}
             {video.vph > 0 && (
               <div style={{ display:"flex", alignItems:"center", gap:4, background:"#F0FDF4", border:"1px solid #86EFAC", padding:"3px 9px", borderRadius:20 }}>
                 <span style={{ fontSize:10, color:"#15803D", fontWeight:700 }}>VPH</span>
@@ -1886,16 +1934,18 @@ export default function App() {
   };
 
   const SORT_OPTIONS = [
-    { key: "outlier",  label: "Outlier",      desc: "Acima da média do canal" },
-    { key: "vph",      label: "VPH",          desc: "Velocidade de crescimento" },
-    { key: "views",    label: "Views",         desc: "Total de visualizações" },
-    { key: "recencia", label: "Recente",       desc: "Publicados mais recentemente" },
-    { key: "pequenos", label: "Canal Pequeno", desc: "Canais com menos inscritos" },
+    { key: "oportunidade", label: "Oportunidade", desc: "Índice composto: outlier ajustado + velocidade absoluta" },
+    { key: "outlier",      label: "Outlier",       desc: "Acima da média do canal" },
+    { key: "vph",          label: "VPH",           desc: "Velocidade de crescimento" },
+    { key: "views",        label: "Views",          desc: "Total de visualizações" },
+    { key: "recencia",     label: "Recente",        desc: "Publicados mais recentemente" },
+    { key: "pequenos",     label: "Canal Pequeno",  desc: "Canais com menos inscritos" },
   ];
 
   const sortedVideos = useMemo(() => {
     if (!videos || !videos.length || !sortMetrics.length) return videos;
     const getters = {
+      oportunidade: v => calcOpportunityScore(v).score,
       outlier:  v => v.outlier || 0,
       vph:      v => v.vph || 0,
       views:    v => v.viewsRaw || 0,
@@ -1922,6 +1972,7 @@ export default function App() {
   const sortedMyChannelsVideos = useMemo(() => {
     if (!myChannelsVideos || !myChannelsVideos.length || !myChannelsSortMetrics.length) return myChannelsVideos;
     const getters = {
+      oportunidade: v => calcOpportunityScore(v).score,
       outlier:  v => v.outlier || 0,
       vph:      v => v.vph || 0,
       views:    v => v.viewsRaw || 0,
