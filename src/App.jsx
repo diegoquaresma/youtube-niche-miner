@@ -1346,7 +1346,7 @@ function ReportModal({ video, onClose, apiKey }) {
 }
 
 // ─── Cards ────────────────────────────────────────────────────────────────────
-function VideoCard({ video, rank, index, onChannelClick, onReportClick }) {
+function VideoCard({ video, rank, index, onChannelClick, onReportClick, onFollowToggle, isFollowed }) {
   const [dark] = channelColor(video.channel);
   const chUrl = video.channelUrl || `https://www.youtube.com/channel/${video.channelId}`;
   const ob     = video.outlier > 0 ? outlierBadge(video.outlier) : null;
@@ -1426,6 +1426,14 @@ function VideoCard({ video, rank, index, onChannelClick, onReportClick }) {
 
         {video.type === "video" && (
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {onFollowToggle && (
+              <button
+                onClick={() => onFollowToggle(video.channelId, video.channel, video.channelThumbnail, video.channelSubscribers)}
+                style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, fontWeight:600, color: isFollowed ? "#7C3AED" : "var(--t2)", background: isFollowed ? "#EDE9FE" : "var(--surface2)", border: `1px solid ${isFollowed ? "#C4B5FD" : "var(--border)"}`, borderRadius:20, padding:"5px 11px", cursor:"pointer", width:"fit-content", fontFamily:"inherit", transition:"all 0.15s" }}
+              >
+                {isFollowed ? "✓ Seguindo" : "+ Seguir"}
+              </button>
+            )}
             {onChannelClick && (
               <button
                 onClick={() => onChannelClick(video.channel, video.channelId)}
@@ -1567,6 +1575,15 @@ export default function App() {
   const [videos, setVideos]         = useState(null);
   const [nextPageToken, setNextPageToken] = useState(null);
   const [sortMetrics, setSortMetrics] = useState([]);
+  const [followedChannels, setFollowedChannels] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("yt_followed") || "[]"); } catch { return []; }
+  });
+  const [myChannelsView, setMyChannelsView] = useState(false);
+  const [myChannelsVideos, setMyChannelsVideos] = useState(null);
+  const [myChannelsLoading, setMyChannelsLoading] = useState(false);
+  const [myChannelsError, setMyChannelsError] = useState(null);
+  const [myChannelsOrder, setMyChannelsOrder] = useState("viewCount");
+  const [myChannelsSortMetrics, setMyChannelsSortMetrics] = useState([]);
   const lastSearchRef = useRef({ query: "", filters: DEFAULT_FILTERS });
   const [niche, setNiche]           = useState(null);
   const [error, setError]           = useState(null);
@@ -1637,6 +1654,88 @@ export default function App() {
     }
   };
 
+  const toggleFollow = (channelId, name, thumbnail, subscribers) => {
+    setFollowedChannels(prev => {
+      const exists = prev.find(c => c.channelId === channelId);
+      const next = exists
+        ? prev.filter(c => c.channelId !== channelId)
+        : [...prev, { channelId, name, thumbnail, subscribers }];
+      localStorage.setItem("yt_followed", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const fetchMyChannelsVideos = async () => {
+    if (!followedChannels.length || myChannelsLoading) return;
+    setMyChannelsLoading(true);
+    setMyChannelsError(null);
+    setMyChannelsVideos(null);
+    setMyChannelsSortMetrics([]);
+    try {
+      const chIds = followedChannels.map(c => c.channelId).join(",");
+      const chBatch = await ytFetch(apiKey, `/channels?part=statistics,snippet&id=${chIds}`);
+      const chMap = {};
+      for (const c of chBatch.items || []) {
+        const tv = Number(c.statistics?.viewCount) || 0;
+        const tn = Number(c.statistics?.videoCount) || 1;
+        chMap[c.id] = {
+          thumbnail: c.snippet?.thumbnails?.medium?.url || c.snippet?.thumbnails?.default?.url || "",
+          subscribers: Number(c.statistics?.subscriberCount) || 0,
+          avgViews: tn > 0 ? tv / tn : 0,
+        };
+      }
+      const allVideos = [];
+      for (const ch of followedChannels) {
+        const searchData = await ytFetch(apiKey,
+          `/search?part=snippet&channelId=${ch.channelId}&type=video&maxResults=20&order=${myChannelsOrder}`
+        );
+        const items = searchData.items || [];
+        const videoIds = items.map(i => i.id?.videoId).filter(Boolean).join(",");
+        if (!videoIds) continue;
+        const statsData = await ytFetch(apiKey, `/videos?part=statistics,contentDetails&id=${videoIds}`);
+        const statsMap = {};
+        for (const s of statsData.items || []) {
+          statsMap[s.id] = { stats: s.statistics, dur: parseDuration(s.contentDetails?.duration) };
+        }
+        const chInfo = chMap[ch.channelId] || {};
+        for (const item of items.filter(i => i.id?.videoId)) {
+          const id = item.id.videoId;
+          const si = statsMap[id] || {};
+          const stats = si.stats || {};
+          const dur = si.dur || { sec: 0, str: "—" };
+          const views = Number(stats.viewCount) || 0;
+          const rawH = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
+          allVideos.push({
+            type: "video", videoId: id,
+            url: `https://www.youtube.com/watch?v=${id}`,
+            title: item.snippet.title,
+            channel: item.snippet.channelTitle,
+            channelId: item.snippet.channelId,
+            channelUrl: `https://www.youtube.com/channel/${item.snippet.channelId}`,
+            channelThumbnail: chInfo.thumbnail || ch.thumbnail || "",
+            channelSubscribers: chInfo.subscribers || ch.subscribers || 0,
+            thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
+            views: formatViews(views), viewsRaw: views,
+            vph: views / Math.max(1, rawH),
+            outlier: chInfo.avgViews > 0 ? views / chInfo.avgViews : 0,
+            hoursOld: rawH,
+            likesRaw: Number(stats.likeCount) || 0,
+            commentsRaw: Number(stats.commentCount) || 0,
+            durationSec: dur.sec, durationStr: dur.str,
+            publishedAt: formatDate(item.snippet.publishedAt),
+            description: item.snippet.description?.slice(0, 120) || "",
+          });
+        }
+      }
+      allVideos.sort((a, b) => b.viewsRaw - a.viewsRaw);
+      setMyChannelsVideos(allVideos);
+    } catch (e) {
+      setMyChannelsError(e.message);
+    } finally {
+      setMyChannelsLoading(false);
+    }
+  };
+
   const SORT_OPTIONS = [
     { key: "outlier",  label: "Outlier",      desc: "Acima da média do canal" },
     { key: "vph",      label: "VPH",          desc: "Velocidade de crescimento" },
@@ -1670,6 +1769,32 @@ export default function App() {
       .sort((a, b) => b.s - a.s)
       .map(({ v }) => v);
   }, [videos, sortMetrics]);
+
+  const sortedMyChannelsVideos = useMemo(() => {
+    if (!myChannelsVideos || !myChannelsVideos.length || !myChannelsSortMetrics.length) return myChannelsVideos;
+    const getters = {
+      outlier:  v => v.outlier || 0,
+      vph:      v => v.vph || 0,
+      views:    v => v.viewsRaw || 0,
+      recencia: v => 1 / Math.max(1, v.hoursOld || 1),
+      pequenos: v => 1 / Math.max(1, v.channelSubscribers || 1),
+    };
+    const active = myChannelsSortMetrics.filter(m => getters[m]);
+    if (!active.length) return myChannelsVideos;
+    const normalize = (vals) => {
+      const max = Math.max(...vals), min = Math.min(...vals);
+      const range = max - min;
+      return vals.map(v => range === 0 ? 0.5 : (v - min) / range);
+    };
+    const norms = active.map(m => normalize(myChannelsVideos.map(getters[m])));
+    const scores = myChannelsVideos.map((_, i) =>
+      active.reduce((sum, _, mi) => sum + norms[mi][i], 0) / active.length
+    );
+    return [...myChannelsVideos]
+      .map((v, i) => ({ v, s: scores[i] }))
+      .sort((a, b) => b.s - a.s)
+      .map(({ v }) => v);
+  }, [myChannelsVideos, myChannelsSortMetrics]);
 
   const canSearch = apiKey.trim() && !loading;
   const sc  = niche ? scoreColor(niche.opportunityScore) : null;
@@ -1787,6 +1912,14 @@ export default function App() {
               </button>
             </div>
           </div>
+          <button onClick={() => { setMyChannelsView(v => !v); }}
+            title="Meus Canais"
+            style={{ position:"relative", height:36, borderRadius:10, background: myChannelsView ? "#6366F1" : "rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.12)", cursor:"pointer", color:"#fff", fontSize:13, fontWeight:600, padding:"0 14px", display:"flex", alignItems:"center", gap:6, flexShrink:0, transition:"background 0.15s", whiteSpace:"nowrap" }}>
+            🔔 Meus Canais
+            {followedChannels.length > 0 && (
+              <span style={{ background:"#EF4444", color:"#fff", fontSize:10, fontWeight:800, borderRadius:20, padding:"1px 6px", minWidth:16, textAlign:"center" }}>{followedChannels.length}</span>
+            )}
+          </button>
           <button onClick={() => setDark(d => !d)} title={dark ? "Modo claro" : "Modo escuro"}
             style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.12)", cursor:"pointer", color:"#fff", fontSize:17, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"background 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.background="rgba(255,255,255,0.14)"; }}
@@ -1979,6 +2112,8 @@ export default function App() {
                   video={video} index={i} rank={i+1}
                   onChannelClick={video.type==="video" ? handleChannelClick : null}
                   onReportClick={video.type==="video" ? setReportVideo : null}
+                  onFollowToggle={video.type==="video" ? toggleFollow : null}
+                  isFollowed={followedChannels.some(c => c.channelId === video.channelId)}
                 />
               ))}
             </div>
@@ -2014,6 +2149,113 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {myChannelsView && (
+        <div style={{ position:"fixed", inset:0, zIndex:200, background:"var(--bg)", overflowY:"auto" }}>
+          <div style={{ maxWidth:1280, margin:"0 auto", padding:"24px 16px 60px" }}>
+
+            {/* Header da view */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:24, flexWrap:"wrap", gap:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <button onClick={() => setMyChannelsView(false)}
+                  style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:"7px 14px", cursor:"pointer", fontSize:13, color:"var(--t2)", fontFamily:"inherit", fontWeight:600 }}>
+                  ← Voltar
+                </button>
+                <div style={{ width:4, height:22, background:"linear-gradient(180deg,#6366F1,#4F46E5)", borderRadius:2 }} />
+                <p style={{ margin:0, fontSize:16, fontWeight:800, color:"var(--t1)", letterSpacing:"-0.02em" }}>Meus Canais</p>
+                <span style={{ fontSize:12, background:"#EEF2FF", color:"#4F46E5", padding:"4px 12px", borderRadius:20, fontWeight:700, border:"1px solid #C7D2FE" }}>{followedChannels.length} seguidos</span>
+              </div>
+            </div>
+
+            {followedChannels.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"4rem 0" }}>
+                <p style={{ fontSize:40, margin:"0 0 12px" }}>🔔</p>
+                <p style={{ fontSize:15, fontWeight:700, color:"var(--t1)", margin:"0 0 6px" }}>Nenhum canal seguido ainda</p>
+                <p style={{ fontSize:13, color:"var(--t4)", margin:0 }}>Clique em <strong>+ Seguir</strong> nos cards de vídeo para adicionar canais aqui.</p>
+              </div>
+            ) : (
+              <>
+                {/* Lista de canais seguidos */}
+                <div style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:16, padding:"18px 20px", marginBottom:22 }}>
+                  <div style={{ display:"flex", gap:14, overflowX:"auto", paddingBottom:6 }}>
+                    {followedChannels.map(ch => (
+                      <div key={ch.channelId} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, minWidth:72 }}>
+                        <div style={{ position:"relative" }}>
+                          <SafeImg src={ch.thumbnail} alt={ch.name} fallbackName={ch.name} fallbackSize={44} style={{ width:48, height:48, borderRadius:"50%", border:"2px solid #6366F1" }} />
+                          <button onClick={() => toggleFollow(ch.channelId, ch.name, ch.thumbnail, ch.subscribers)}
+                            style={{ position:"absolute", top:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"#EF4444", border:"none", color:"#fff", fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 }}>
+                            ×
+                          </button>
+                        </div>
+                        <span style={{ fontSize:10, color:"var(--t2)", fontWeight:600, textAlign:"center", maxWidth:68, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ch.name}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Controles de busca */}
+                  <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:16, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:"var(--t3)" }}>Ordenar por:</span>
+                    {[{v:"viewCount",l:"Popularidade"},{v:"date",l:"Mais recentes"}].map(o => (
+                      <button key={o.v} onClick={() => setMyChannelsOrder(o.v)}
+                        style={{ padding:"5px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", border:`1.5px solid ${myChannelsOrder===o.v?"#6366F1":"var(--border)"}`, background:myChannelsOrder===o.v?"#6366F1":"var(--surface)", color:myChannelsOrder===o.v?"#fff":"var(--t2)", transition:"all 0.15s" }}>
+                        {o.l}
+                      </button>
+                    ))}
+                    <button onClick={fetchMyChannelsVideos} disabled={myChannelsLoading}
+                      style={{ marginLeft:"auto", padding:"8px 22px", borderRadius:20, border:"none", background:"linear-gradient(135deg,#6366F1,#4F46E5)", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", opacity:myChannelsLoading?0.7:1, boxShadow:"0 4px 12px rgba(99,102,241,0.35)" }}>
+                      {myChannelsLoading ? "Buscando…" : "🔍 Buscar Vídeos"}
+                    </button>
+                  </div>
+                  {myChannelsError && <p style={{ margin:"10px 0 0", fontSize:12, color:"#EF4444" }}>Erro: {myChannelsError}</p>}
+                </div>
+
+                {/* Resultados */}
+                {myChannelsVideos && (
+                  <>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:8 }}>
+                      <span style={{ fontSize:15, fontWeight:800, color:"var(--t1)" }}>Vídeos dos canais seguidos</span>
+                      <span style={{ fontSize:12, background:"#EEF2FF", color:"#4F46E5", padding:"4px 14px", borderRadius:20, fontWeight:700, border:"1px solid #C7D2FE" }}>{myChannelsVideos.length} vídeos</span>
+                    </div>
+
+                    {/* Sort bar */}
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:18, padding:"12px 14px", background:"var(--surface2)", borderRadius:12, border:"1px solid var(--border)" }}>
+                      <span style={{ fontSize:12, fontWeight:700, color:"var(--t3)", alignSelf:"center", marginRight:4 }}>Ordenar por:</span>
+                      {SORT_OPTIONS.map(opt => {
+                        const active = myChannelsSortMetrics.includes(opt.key);
+                        return (
+                          <button key={opt.key} title={opt.desc}
+                            onClick={() => setMyChannelsSortMetrics(prev => active ? prev.filter(k => k !== opt.key) : [...prev, opt.key])}
+                            style={{ padding:"5px 14px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 0.15s", border:active?"1.5px solid #6366F1":"1.5px solid var(--border)", background:active?"#6366F1":"var(--surface)", color:active?"#fff":"var(--t2)" }}>
+                            {myChannelsSortMetrics.indexOf(opt.key) >= 0 ? `${myChannelsSortMetrics.indexOf(opt.key)+1}. ${opt.label}` : opt.label}
+                          </button>
+                        );
+                      })}
+                      {myChannelsSortMetrics.length > 0 && (
+                        <button onClick={() => setMyChannelsSortMetrics([])}
+                          style={{ padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer", border:"1.5px solid var(--border)", background:"transparent", color:"var(--t4)" }}>
+                          Resetar
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="video-grid">
+                      {(sortedMyChannelsVideos || myChannelsVideos).map((video, i) => (
+                        <VideoCard
+                          key={video.videoId + i}
+                          video={video} index={i} rank={i+1}
+                          onReportClick={setReportVideo}
+                          onFollowToggle={toggleFollow}
+                          isFollowed={followedChannels.some(c => c.channelId === video.channelId)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
