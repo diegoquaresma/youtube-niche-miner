@@ -351,6 +351,15 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
     };
   }
 
+  // Group result views by channel to build a peer-based baseline when possible
+  const peerViewsMap = {}; // channelId -> [views]
+  for (const item of videoItems) {
+    const views = Number(statsMap[item.id.videoId]?.stats?.viewCount) || 0;
+    const chId  = item.snippet.channelId;
+    if (!peerViewsMap[chId]) peerViewsMap[chId] = [];
+    peerViewsMap[chId].push(views);
+  }
+
   return {
     items: videoItems
       .map(item => {
@@ -362,7 +371,16 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
         const ch       = chMap[item.snippet.channelId] || {};
         const rawHours = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
         const vph      = views / Math.max(1, rawHours);
-        const outlier  = calcOutlier(views, ch.totalViews, ch.videoCount);
+        // Use peer average from results when ≥3 videos from same channel, else channel total
+        const peers = peerViewsMap[item.snippet.channelId] || [];
+        const peersOtherTotal = peers.reduce((s, v) => s + v, 0) - views;
+        const peersOtherCount = peers.length - 1;
+        const peerAvg = peersOtherCount >= 2 && peersOtherTotal > 0
+          ? peersOtherTotal / peersOtherCount
+          : null;
+        const outlier = peerAvg
+          ? views / peerAvg
+          : calcOutlier(views, ch.totalViews, ch.videoCount);
         return {
           type: "video", videoId: id,
           url: `https://www.youtube.com/watch?v=${id}`,
@@ -1922,6 +1940,14 @@ export default function App() {
           statsMap[s.id] = { stats: s.statistics, dur: parseDuration(s.contentDetails?.duration) };
         }
         const chInfo = chMap[ch.channelId] || {};
+
+        // Compute average from the actual fetched videos (recent performance baseline)
+        const fetchedViews = items
+          .filter(i => i.id?.videoId)
+          .map(i => Number(statsMap[i.id.videoId]?.stats?.viewCount) || 0);
+        const fetchedTotal = fetchedViews.reduce((a, b) => a + b, 0);
+        const fetchedCount = fetchedViews.length;
+
         for (const item of items.filter(i => i.id?.videoId)) {
           const id = item.id.videoId;
           const si = statsMap[id] || {};
@@ -1929,6 +1955,12 @@ export default function App() {
           const dur = si.dur || { sec: 0, str: "—" };
           const views = Number(stats.viewCount) || 0;
           const rawH = (Date.now() - new Date(item.snippet.publishedAt)) / 36e5;
+          // Average of the OTHER fetched videos (exclude self) — true recent baseline
+          const othersTotal = fetchedTotal - views;
+          const othersCount = fetchedCount - 1;
+          const recentAvg = othersCount > 0 && othersTotal > 0
+            ? othersTotal / othersCount
+            : (chInfo.totalViews || 0) / Math.max(1, chInfo.videoCount || 1);
           allVideos.push({
             type: "video", videoId: id,
             url: `https://www.youtube.com/watch?v=${id}`,
@@ -1941,7 +1973,7 @@ export default function App() {
             thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || "",
             views: formatViews(views), viewsRaw: views,
             vph: views / Math.max(1, rawH),
-            outlier: calcOutlier(views, chInfo.totalViews, chInfo.videoCount),
+            outlier: recentAvg > 0 ? views / recentAvg : 0,
             hoursOld: rawH,
             likesRaw: Number(stats.likeCount) || 0,
             commentsRaw: Number(stats.commentCount) || 0,
