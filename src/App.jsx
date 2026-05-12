@@ -780,7 +780,6 @@ function FilterPanel({ filters, onChange, onClear }) {
     filters.maxViews ? 1 : 0,
     filters.minSubs ? 1 : 0,
     filters.maxSubs ? 1 : 0,
-    filters.channel ? 1 : 0,
     filters.country ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
@@ -835,32 +834,7 @@ function FilterPanel({ filters, onChange, onClear }) {
         )}
       </div>
 
-      {/* Canal específico */}
-      <div style={{ marginBottom:20, paddingBottom:20, borderBottom:"1px solid var(--border)" }}>
-        <p style={lbl}>Canal específico</p>
-        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-          <input
-            type="text"
-            value={filters.channel || ""}
-            onChange={e => onChange({ ...filters, channel: e.target.value })}
-            placeholder="@handle, URL ou nome do canal"
-            style={{ width:280, padding:"7px 12px", border:`1.5px solid ${filters.channel ? "#6366F1" : "var(--border)"}`, borderRadius:9, fontSize:12, color:"var(--t1)", background:"var(--surface)", outline:"none", fontFamily:"inherit" }}
-          />
-          {filters.channel && (
-            <button onClick={() => onChange({ ...filters, channel: "" })}
-              style={{ padding:"6px 12px", borderRadius:9, border:"1px solid #FECACA", background:"#FEF2F2", color:"#DC2626", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-              ✕ Limpar
-            </button>
-          )}
-        </div>
-        {filters.channel && (
-          <p style={{ margin:"6px 0 0", fontSize:11, color:"#6366F1", fontWeight:600 }}>
-            📺 Busca restrita ao canal — será resolvido ao pesquisar
-          </p>
-        )}
-      </div>
-
-      <div style={{ display:"flex", flexWrap:"wrap", gap:20, paddingBottom:20, borderBottom:"1px solid var(--border)", marginBottom:20 }}>
+<div style={{ display:"flex", flexWrap:"wrap", gap:20, paddingBottom:20, borderBottom:"1px solid var(--border)", marginBottom:20 }}>
         <div style={sect}>
           <p style={lbl}>Tipo de conteúdo</p>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>{FILTER_DEFS.tipo.map(f => chip("tipo", f.value, f.label))}</div>
@@ -2135,7 +2109,6 @@ export default function App() {
     filters.minSubs ? 1 : 0,
     filters.maxSubs ? 1 : 0,
     filters.country ? 1 : 0,
-    filters.channel ? 1 : 0,
   ].reduce((a,b) => a+b, 0);
 
   return (
@@ -2287,9 +2260,9 @@ export default function App() {
         <div className="card-panel" style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:18, padding:"26px", marginBottom:14, boxShadow:"0 4px 12px rgba(0,0,0,0.06)" }}>
           <div style={{ marginBottom:20 }}>
             <p style={{ margin:"0 0 4px", fontSize:17, fontWeight:800, color:"var(--t1)", letterSpacing:"-0.03em" }}>Pesquisar nicho</p>
-            <p style={{ margin:0, fontSize:13, color:"var(--t3)" }}>Combine os campos para refinar a busca. Preencha pelo menos um campo.</p>
+            <p style={{ margin:0, fontSize:13, color:"var(--t3)" }}>Busque por tema ou pelo nome de um canal específico.</p>
           </div>
-          <div className="search-grid" style={{ marginBottom:20 }}>
+          <div className="search-grid" style={{ marginBottom:12 }}>
             {[
               { key:"tema",           label:"Tema",          placeholder:"ex: fitness, culinária",   val:tema,           set:setTema },
               { key:"direcionamento", label:"Direcionamento", placeholder:"ex: iniciantes, mulheres", val:direcionamento, set:setDirecionamento },
@@ -2303,6 +2276,30 @@ export default function App() {
               </div>
             ))}
           </div>
+
+          {/* Canal field — full width, visually separated */}
+          <div style={{ marginBottom:20, padding:"14px 16px", background:"var(--surface2)", borderRadius:12, border:`1.5px solid ${filters.channel ? "#6366F1" : "var(--border)"}`, transition:"border-color 0.15s" }}>
+            <label style={{ display:"block", marginBottom:6, fontSize:11, fontWeight:700, color:"var(--t3)", textTransform:"uppercase", letterSpacing:"0.07em" }}>
+              📺 Canal <span style={{ fontWeight:400, color:"var(--t4)", textTransform:"none", letterSpacing:0 }}>— restringe a busca a um canal específico (opcional)</span>
+            </label>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <input
+                value={filters.channel || ""}
+                onChange={e => setFilters(f => ({ ...f, channel: e.target.value }))}
+                onKeyDown={e => e.key === "Enter" && search()}
+                placeholder="Nome do canal, @handle ou URL — ex: Back To Surviving"
+                disabled={loading}
+                style={{ flex:1 }}
+              />
+              {filters.channel && (
+                <button onClick={() => setFilters(f => ({ ...f, channel: "", channelId: undefined }))}
+                  style={{ flexShrink:0, padding:"8px 14px", borderRadius:9, border:"1px solid #FECACA", background:"#FEF2F2", color:"#DC2626", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
             <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
               {(tema||direcionamento||subtema) && (
