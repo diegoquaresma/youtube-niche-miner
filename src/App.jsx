@@ -179,7 +179,7 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
   const searchQuery = tipo === "shorts" ? `${baseQuery} #shorts` : baseQuery;
 
   // ── No-query + no-country: use videos?chart=mostPopular (global trending) ─
-  if (!query && !filters.country && (tipo === "video" || tipo === "shorts")) {
+  if (!query && !filters.country && !filters.channelId && (tipo === "video" || tipo === "shorts")) {
     const vp = new URLSearchParams({
       part: "snippet,statistics,contentDetails",
       chart: "mostPopular",
