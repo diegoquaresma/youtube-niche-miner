@@ -258,6 +258,7 @@ async function searchVideos(apiKey, query, filters, pageToken = null) {
     params.set("regionCode", filters.country);
     if (targetLang) params.set("relevanceLanguage", targetLang);
   }
+  if (filters.channelId) params.set("channelId", filters.channelId);
 
   const isVideoType = tipo === "video" || tipo === "shorts" || tipo === "movie";
   if (isVideoType) {
@@ -737,8 +738,33 @@ const FILTER_DEFS = {
 
 const DEFAULT_FILTERS = {
   tipo:"video", duracao:"", data:"", caracteristicas:[], ordem:"viewCount",
-  minViews:"", maxViews:"", minSubs:"", maxSubs:"", country:"",
+  minViews:"", maxViews:"", minSubs:"", maxSubs:"", country:"", channel:"",
 };
+
+async function resolveChannelId(apiKey, input) {
+  const s = input.trim();
+  if (!s) return null;
+  // Already a channel ID
+  if (/^UC[\w-]{22}$/.test(s)) return s;
+  // URL containing /channel/UCxxxx
+  const byId = s.match(/\/channel\/(UC[\w-]{22})/);
+  if (byId) return byId[1];
+  // @handle (URL or bare)
+  const handle = s.match(/@([\w.-]+)/);
+  if (handle) {
+    const d = await ytFetch(apiKey, `/channels?part=id&forHandle=@${handle[1]}`);
+    return d.items?.[0]?.id || null;
+  }
+  // /c/name or /user/name
+  const custom = s.match(/\/(?:c|user)\/([\w.-]+)/);
+  if (custom) {
+    const d = await ytFetch(apiKey, `/channels?part=id&forUsername=${custom[1]}`);
+    return d.items?.[0]?.id || null;
+  }
+  // Plain name — search and take first channel result
+  const d = await ytFetch(apiKey, `/search?part=snippet&type=channel&q=${encodeURIComponent(s)}&maxResults=1`);
+  return d.items?.[0]?.id?.channelId || null;
+}
 
 function FilterPanel({ filters, onChange, onClear }) {
   const videoOnly = ["video","movie"].includes(filters.tipo);
@@ -754,6 +780,7 @@ function FilterPanel({ filters, onChange, onClear }) {
     filters.maxViews ? 1 : 0,
     filters.minSubs ? 1 : 0,
     filters.maxSubs ? 1 : 0,
+    filters.channel ? 1 : 0,
     filters.country ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
@@ -805,6 +832,31 @@ function FilterPanel({ filters, onChange, onClear }) {
           <button onClick={onClear} style={{ fontSize:12, color:"#EF4444", background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:20, cursor:"pointer", padding:"4px 12px", fontFamily:"inherit", fontWeight:600 }}>
             Limpar todos · {activeCount}
           </button>
+        )}
+      </div>
+
+      {/* Canal específico */}
+      <div style={{ marginBottom:20, paddingBottom:20, borderBottom:"1px solid var(--border)" }}>
+        <p style={lbl}>Canal específico</p>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          <input
+            type="text"
+            value={filters.channel || ""}
+            onChange={e => onChange({ ...filters, channel: e.target.value })}
+            placeholder="@handle, URL ou nome do canal"
+            style={{ width:280, padding:"7px 12px", border:`1.5px solid ${filters.channel ? "#6366F1" : "var(--border)"}`, borderRadius:9, fontSize:12, color:"var(--t1)", background:"var(--surface)", outline:"none", fontFamily:"inherit" }}
+          />
+          {filters.channel && (
+            <button onClick={() => onChange({ ...filters, channel: "" })}
+              style={{ padding:"6px 12px", borderRadius:9, border:"1px solid #FECACA", background:"#FEF2F2", color:"#DC2626", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+              ✕ Limpar
+            </button>
+          )}
+        </div>
+        {filters.channel && (
+          <p style={{ margin:"6px 0 0", fontSize:11, color:"#6366F1", fontWeight:600 }}>
+            📺 Busca restrita ao canal — será resolvido ao pesquisar
+          </p>
         )}
       </div>
 
@@ -1824,11 +1876,18 @@ export default function App() {
   const search = async () => {
     if (!apiKey.trim()) return;
     const query = [tema, direcionamento, subtema].filter(Boolean).join(" ");
-    lastSearchRef.current = { query, filters };
     setLoading(true); setError(null); setVideos(null); setNiche(null); setActiveChannel(null); setNextPageToken(null); setSortMetrics([]);
     try {
-      const { items: raw, nextPageToken: npt } = await searchVideos(apiKey, query, filters);
-      const result = applyFilters(raw, filters);
+      // Resolve channel input to a channel ID before searching
+      let resolvedFilters = filters;
+      if (filters.channel?.trim()) {
+        const channelId = await resolveChannelId(apiKey, filters.channel);
+        if (!channelId) throw new Error(`Canal não encontrado: "${filters.channel}"`);
+        resolvedFilters = { ...filters, channelId };
+      }
+      lastSearchRef.current = { query, filters: resolvedFilters };
+      const { items: raw, nextPageToken: npt } = await searchVideos(apiKey, query, resolvedFilters);
+      const result = applyFilters(raw, resolvedFilters);
       setVideos(result);
       setNextPageToken(npt);
       setNiche(analyzeNiche(result));
@@ -2076,6 +2135,7 @@ export default function App() {
     filters.minSubs ? 1 : 0,
     filters.maxSubs ? 1 : 0,
     filters.country ? 1 : 0,
+    filters.channel ? 1 : 0,
   ].reduce((a,b) => a+b, 0);
 
   return (
